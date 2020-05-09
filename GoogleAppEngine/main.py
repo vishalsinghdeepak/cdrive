@@ -141,7 +141,11 @@ def delete():
     
     print("Secure File name: ", file_name)
     #TODO DB Find on which device user's file is stored
-    storage_id = find_storage_id(user_id, original_file_name)  
+    storage_id = check_if_file_exists_das(user_id, original_file_name)
+    if storage_id == None:
+        return "FILE_NOT_EXIST", 200
+
+    file_size = delete_user_file_DB(user_id, original_file_name)
     topic = storage_id
     action = "delete"
     payload = build_payload(action, file_name)
@@ -152,7 +156,7 @@ def delete():
     print("PUBSUB: Message published")
     #Updating Delete DATABASE
     print("FIREBASE: Deleting File object from User collections")
-    file_size = delete_user_file_DB(user_id, original_file_name)
+    update_storage_space(storage_id, file_size)
     print("FIREBASE: UPDATE SUCCESS", file_size)
     print("FIREBASE: Updating User Space Use")
     update_user_quota(user_id, file_size , False)
@@ -182,13 +186,13 @@ def download():
     
 
     print("FIREBASE: Finding storage where the file is stored")
-    storage_id = find_storage_id(user_id, original_file_name)
+    storage_id = check_if_file_exists_das(user_id, original_file_name)
     
     if storage_id==None:
         #TODO ERROR HANDLING
         
         print("FIREBASE: No storage device available with enough free space")
-        return 'No such file Exists!'
+        return 'FILE_NOT_EXIST', 200
     else:
         print("FIREBASE: Storage id found ", storage_id)
     topic = storage_id
@@ -243,6 +247,7 @@ def find_storage_id(user_id, file_name):
     print ('Finding File in Firebase!')
     file_name=file_name.replace('.','')
     print(file_name)
+    storage_id = None
     path = ['users',user_id,'files',file_name,'storageId']
     path = "/".join(path)
     storage_id = db.reference(path).get()
@@ -258,6 +263,16 @@ def check_if_file_exists_das(user_id, file_name):
     if 'files' in users_dic and file_key in users_dic['files']:
         return users_dic['files'][file_key]['storageId']
     return None
+
+def update_storage_space(storage_id, file_size):
+    print("FIREBASE: Updating available space for Storage Device: ", storage_id)
+    path = ['storageDevices',storage_id]
+    path = "/".join(path)
+    sd_ref = db.reference(path)
+    storage_dic = sd_ref.get()
+    storage_dic['spaceUsed'] = storage_dic['spaceUsed'] - file_size
+    sd_ref.set(storage_dic)
+    print("FIREBASE: SUCCESS")
 
 def update_user_quota(user_id, file_size, flag):  
     path = ['users', user_id]
@@ -290,21 +305,9 @@ def delete_user_file_DB(user_id,file_name):
     files_dic = users_files_ref.get()
     file_key = file_name.replace('.','')
     file_size = files_dic[file_key]['fileSize']
-    storage_id = files_dic[file_key]['storageId']
     del files_dic[file_key]
     users_files_ref.set(files_dic)
     print("FIREBASE: SUCCESS")
-    
-    print("FIREBASE: Updating available space for Storage Device: ", storage_id)
-    
-    path = ['storageDevices',storage_id]
-    path = "/".join(path)
-    sd_ref = db.reference(path)
-    storage_dic = sd_ref.get()
-    storage_dic['spaceUsed'] = storage_dic['spaceUsed'] - file_size
-    sd_ref.set(storage_dic)
-    print("FIREBASE: SUCCESS")
-    
     return file_size
     
 
